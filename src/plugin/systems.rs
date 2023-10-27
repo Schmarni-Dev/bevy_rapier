@@ -20,14 +20,8 @@ use crate::prelude::{
 };
 use crate::utils;
 use bevy::ecs::system::{StaticSystemParam, SystemParamItem};
-use bevy::prelude::{
-    default, error, shape, App, AssetPlugin, Assets, BuildWorldChildren, Changed, Children,
-    Commands, Entity, EventReader, EventWriter, Events, GlobalTransform, Handle, HierarchyQueryExt,
-    ImagePlugin, IntoSystemConfigs, Mesh, Name, Or, Parent, Plugin, Quat, Query, RemovedComponents,
-    Res, ResMut, Scene, SceneSpawner, Time, Transform, TransformBundle, TransformPlugin, Update,
-    Vec3, WindowPlugin, With, Without, World,
-};
-use rapier::prelude::*;
+use bevy::prelude::*;
+use rapier::prelude::{Real, *};
 use std::collections::HashMap;
 
 #[cfg(all(feature = "dim3", feature = "async-collider"))]
@@ -688,7 +682,7 @@ pub fn writeback_mass_properties(
     let scale = context.physics_scale;
 
     if config.physics_pipeline_active {
-        for entity in mass_modified.iter() {
+        for entity in mass_modified.read() {
             if let Some(handle) = context.entity2body.get(entity).copied() {
                 if let Some(rb) = context.bodies.get(handle) {
                     if let Ok(mut mass_props) = mass_props.get_mut(**entity) {
@@ -1193,7 +1187,7 @@ pub fn sync_removals(
      * Rigid-bodies removal detection.
      */
     let context = &mut *context;
-    for entity in removed_bodies.iter() {
+    for entity in removed_bodies.read() {
         if let Some(handle) = context.entity2body.remove(&entity) {
             let _ = context.last_body_transform_set.remove(&handle);
             context.bodies.remove(
@@ -1226,7 +1220,7 @@ pub fn sync_removals(
     /*
      * Collider removal detection.
      */
-    for entity in removed_colliders.iter() {
+    for entity in removed_colliders.read() {
         if let Some(parent) = context.collider_parent(entity) {
             mass_modified.send(parent.into());
         }
@@ -1256,7 +1250,7 @@ pub fn sync_removals(
     /*
      * Impulse joint removal detection.
      */
-    for entity in removed_impulse_joints.iter() {
+    for entity in removed_impulse_joints.read() {
         if let Some(handle) = context.entity2impulse_joint.remove(&entity) {
             context.impulse_joints.remove(handle, true);
         }
@@ -1272,7 +1266,7 @@ pub fn sync_removals(
     /*
      * Multibody joint removal detection.
      */
-    for entity in removed_multibody_joints.iter() {
+    for entity in removed_multibody_joints.read() {
         if let Some(handle) = context.entity2multibody_joint.remove(&entity) {
             context.multibody_joints.remove(handle, true);
         }
@@ -1290,7 +1284,7 @@ pub fn sync_removals(
     /*
      * Marker components removal detection.
      */
-    for entity in removed_sensors.iter() {
+    for entity in removed_sensors.read() {
         if let Some(handle) = context.entity2collider.get(&entity) {
             if let Some(co) = context.colliders.get_mut(*handle) {
                 co.set_sensor(false);
@@ -1298,7 +1292,7 @@ pub fn sync_removals(
         }
     }
 
-    for entity in removed_colliders_disabled.iter() {
+    for entity in removed_colliders_disabled.read() {
         if let Some(handle) = context.entity2collider.get(&entity) {
             if let Some(co) = context.colliders.get_mut(*handle) {
                 co.set_enabled(true);
@@ -1306,7 +1300,7 @@ pub fn sync_removals(
         }
     }
 
-    for entity in removed_rigid_body_disabled.iter() {
+    for entity in removed_rigid_body_disabled.read() {
         if let Some(handle) = context.entity2body.get(&entity) {
             if let Some(rb) = context.bodies.get_mut(*handle) {
                 rb.set_enabled(true);
@@ -1323,7 +1317,7 @@ pub fn update_colliding_entities(
     mut collision_events: EventReader<CollisionEvent>,
     mut colliding_entities: Query<&mut CollidingEntities>,
 ) {
-    for event in collision_events.iter() {
+    for event in collision_events.read() {
         match event.to_owned() {
             CollisionEvent::Started(entity1, entity2, _) => {
                 if let Ok(mut entities) = colliding_entities.get_mut(entity1) {
