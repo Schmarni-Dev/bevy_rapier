@@ -8,6 +8,7 @@ use bevy::ecs::{
     system::SystemParamItem,
 };
 use bevy::{prelude::*, transform::TransformSystem};
+use rapier::prelude::PhysicsHooks;
 use std::marker::PhantomData;
 
 /// No specific user-data is associated to the hooks.
@@ -76,6 +77,7 @@ where
     /// [`with_system_setup(false)`](Self::with_system_setup).
     /// See [`PhysicsSet`] for a description of these systems.
     pub fn get_systems(set: PhysicsSet) -> SystemConfigs {
+        use bevy::ecs::event;
         match set {
             PhysicsSet::SyncBackend => (
                 // Run the character controller before the manual transform propagation.
@@ -107,18 +109,16 @@ where
                 .into_configs(),
             PhysicsSet::StepSimulation => (
                 systems::step_simulation::<PhysicsHooks>,
-                Events::<CollisionEvent>::update_system
+                event::event_update_system::<CollisionEvent>
                     .before(systems::step_simulation::<PhysicsHooks>),
-                Events::<ContactForceEvent>::update_system
-                    .before(systems::step_simulation::<PhysicsHooks>),
+                event::event_update_system::<ContactForceEvent>.before(systems::step_simulation::<PhysicsHooks>),
             )
                 .into_configs(),
             PhysicsSet::Writeback => (
                 systems::update_colliding_entities,
                 systems::writeback_rigid_bodies,
                 systems::writeback_mass_properties,
-                Events::<MassModifiedEvent>::update_system
-                    .after(systems::writeback_mass_properties),
+                event::event_update_system::<MassModifiedEvent>.after(systems::writeback_mass_properties),
             )
                 .into_configs(),
         }
@@ -202,40 +202,56 @@ where
             .insert_resource(Events::<ContactForceEvent>::default())
             .insert_resource(Events::<MassModifiedEvent>::default());
 
-        // Add each set as necessary
-        if self.default_system_setup {
-            app.configure_sets(
-                self.schedule.clone(),
-                (
-                    PhysicsSet::SyncBackend,
-                    PhysicsSet::StepSimulation,
-                    PhysicsSet::Writeback,
-                )
-                    .chain()
-                    .before(TransformSystem::TransformPropagate),
-            );
+        if self.schedule.as_dyn_eq().dyn_eq(FixedUpdate.as_dyn_eq()) {
+            schedule_stuff(self, app, FixedUpdate);
+        } else {
+            schedule_stuff(self, app, PostUpdate);
+        }
+    }
+}
+fn schedule_stuff<PhysicsHooks>(
+    s: &RapierPhysicsPlugin<PhysicsHooks>,
+    app: &mut App,
+    schedule: impl ScheduleLabel + Clone,
+) where
+    PhysicsHooks: 'static + BevyPhysicsHooks,
+    for<'w, 's> SystemParamItem<'w, 's, PhysicsHooks>: BevyPhysicsHooks,
+{
+    // Add each set as necessary
+    if s.default_system_setup {
+        app.configure_sets(
+            schedule.clone(),
+            (
+                PhysicsSet::SyncBackend,
+                PhysicsSet::StepSimulation,
+                PhysicsSet::Writeback,
+            )
+                .chain()
+                .before(TransformSystem::TransformPropagate),
+        );
 
-            // These *must* be in the main schedule currently so that they do not miss events.
-            app.add_systems(PostUpdate, (systems::sync_removals,));
+        // These *must* be in the main schedule currently so that they do not miss events.
+        app.add_systems(PostUpdate, (systems::sync_removals,));
 
-            app.add_systems(
-                self.schedule.clone(),
-                (
-                    Self::get_systems(PhysicsSet::SyncBackend).in_set(PhysicsSet::SyncBackend),
-                    Self::get_systems(PhysicsSet::StepSimulation)
-                        .in_set(PhysicsSet::StepSimulation),
-                    Self::get_systems(PhysicsSet::Writeback).in_set(PhysicsSet::Writeback),
-                ),
-            );
+        app.add_systems(
+            schedule,
+            (
+                RapierPhysicsPlugin::<PhysicsHooks>::get_systems(PhysicsSet::SyncBackend)
+                    .in_set(PhysicsSet::SyncBackend),
+                RapierPhysicsPlugin::<PhysicsHooks>::get_systems(PhysicsSet::StepSimulation)
+                    .in_set(PhysicsSet::StepSimulation),
+                RapierPhysicsPlugin::<PhysicsHooks>::get_systems(PhysicsSet::Writeback)
+                    .in_set(PhysicsSet::Writeback),
+            ),
+        );
 
-            // Warn user if the timestep mode isn't in Fixed
-            if self.schedule.as_dyn_eq().dyn_eq(FixedUpdate.as_dyn_eq()) {
-                let config = app.world.resource::<RapierConfiguration>();
-                match config.timestep_mode {
-                    TimestepMode::Fixed { .. } => {}
-                    mode => {
-                        warn!("TimestepMode is set to `{:?}`, it is recommended to use `TimestepMode::Fixed` if you have the physics in `FixedUpdate`", mode);
-                    }
+        // Warn user if the timestep mode isn't in Fixed
+        if s.schedule.as_dyn_eq().dyn_eq(FixedUpdate.as_dyn_eq()) {
+            let config = app.world.resource::<RapierConfiguration>();
+            match config.timestep_mode {
+                TimestepMode::Fixed { .. } => {}
+                mode => {
+                    warn!("TimestepMode is set to `{:?}`, it is recommended to use `TimestepMode::Fixed` if you have the physics in `FixedUpdate`", mode);
                 }
             }
         }

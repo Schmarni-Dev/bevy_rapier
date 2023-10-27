@@ -20,7 +20,13 @@ use crate::prelude::{
 };
 use crate::utils;
 use bevy::ecs::system::{StaticSystemParam, SystemParamItem};
-use bevy::prelude::*;
+use bevy::prelude::{
+    default, error, shape, App, AssetPlugin, Assets, BuildWorldChildren, Changed, Children,
+    Commands, Entity, EventReader, EventWriter, Events, GlobalTransform, Handle, HierarchyQueryExt,
+    ImagePlugin, IntoSystemConfigs, Mesh, Name, Or, Parent, Plugin, Quat, Query, RemovedComponents,
+    Res, ResMut, Scene, SceneSpawner, Time, Transform, TransformBundle, TransformPlugin, Update,
+    Vec3, WindowPlugin, With, Without, World,
+};
 use rapier::prelude::*;
 use std::collections::HashMap;
 
@@ -1825,10 +1831,12 @@ mod tests {
                 AssetPlugin::default(),
                 ScenePlugin::default(),
                 RenderPlugin {
-                    wgpu_settings: WgpuSettings {
-                        backends: None,
-                        ..Default::default()
-                    },
+                    render_creation: bevy::render::settings::RenderCreation::Automatic(
+                        WgpuSettings {
+                            backends: None,
+                            ..Default::default()
+                        },
+                    ),
                 },
                 ImagePlugin::default(),
             ));
